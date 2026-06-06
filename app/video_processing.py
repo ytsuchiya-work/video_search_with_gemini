@@ -39,21 +39,43 @@ def get_video_duration(path: str) -> float:
         cap.release()
 
 
-def detect_scenes(video_path: str, threshold: float = 22.0, min_scene_len_sec: float = 2.5) -> List[tuple]:
+def detect_scenes(
+    video_path: str,
+    threshold: float = 22.0,
+    min_scene_len_sec: float = 2.5,
+    max_scene_len_sec: float = 25.0,
+) -> List[tuple]:
     """シーン境界を検出。
 
     - threshold が小さいほど敏感に分割される (デフォルト 22; 元値 30 から下げ)
-    - min_scene_len_sec で短すぎる分割を抑制 (デフォルト 2.5 秒)
+    - min_scene_len_sec: 短すぎる分割を抑制 (デフォルト 2.5 秒)
+    - max_scene_len_sec: ContentDetector が拾えない長尺シーン (アニメ/screencast) を
+      固定時間でサブ分割するための上限 (デフォルト 25 秒)
     """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     cap.release()
     min_frames = max(1, int(min_scene_len_sec * fps))
     detector = ContentDetector(threshold=threshold, min_scene_len=min_frames)
-    scenes = detect(video_path, detector)
-    if not scenes:
+    raw = detect(video_path, detector)
+    if not raw:
         return []
-    return [(s[0].get_seconds(), s[1].get_seconds()) for s in scenes]
+    boundaries = [(s[0].get_seconds(), s[1].get_seconds()) for s in raw]
+
+    # 長すぎるシーンを max_scene_len_sec を上限に等分割
+    result: List[tuple] = []
+    for start, end in boundaries:
+        length = end - start
+        if length <= max_scene_len_sec:
+            result.append((start, end))
+            continue
+        n_chunks = int((length + max_scene_len_sec - 1) // max_scene_len_sec)
+        chunk = length / n_chunks
+        for k in range(n_chunks):
+            cs = start + k * chunk
+            ce = start + (k + 1) * chunk if k < n_chunks - 1 else end
+            result.append((cs, ce))
+    return result
 
 
 def split_video(

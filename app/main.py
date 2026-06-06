@@ -141,8 +141,13 @@ async def process_video(video_id: str):
             local_src = os.path.join(td, "src.mp4")
             db_download_from_volume(src_path, local_src)
 
-            _log_event(job_id, "detect scenes (PySceneDetect, threshold=22, min_scene=2.5s)")
-            scenes = detect_scenes(local_src, threshold=22.0, min_scene_len_sec=2.5)
+            _log_event(job_id, "detect scenes (PySceneDetect threshold=22, min=2.5s, max=25s)")
+            scenes = detect_scenes(
+                local_src,
+                threshold=22.0,
+                min_scene_len_sec=2.5,
+                max_scene_len_sec=25.0,
+            )
             if not scenes:
                 duration = get_video_duration(local_src)
                 scenes = [(0.0, duration)]
