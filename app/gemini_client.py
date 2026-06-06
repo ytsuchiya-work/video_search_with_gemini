@@ -18,11 +18,15 @@ logger = logging.getLogger(__name__)
 GEMINI_ENDPOINT = os.environ.get("GEMINI_ENDPOINT", "databricks-gemini-2-5-flash")
 EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_ENDPOINT", "databricks-gte-large-en")
 
-_PROMPT = """この動画シーンを分析し、必ず次のJSON形式のみで応答してください。Markdownや余計な文字は禁止。
+_PROMPT = """この動画シーンを分析し、必ず次の JSON 1 つだけで応答してください。
+- Markdown コードフェンス禁止。
+- summary の中に JSON を入れ子で書かないこと。
+- summary は 2-3 文の日本語、features は文字列配列。
+
 {
-  "transcript": "音声を聞き取った日本語の文字起こし。音声が無い・聞き取れない場合は空文字。",
-  "summary": "シーンで何が起きているかを2-3文の日本語で簡潔に要約。",
-  "features": ["シーンを特徴付けるキーワード/タグ", "...", "..."]
+  "transcript": "音声を聞き取った日本語の文字起こし。音声が無ければ空文字。",
+  "summary": "シーンの要約 (日本語2-3文)。",
+  "features": ["タグ1", "タグ2", "..."]
 }
 """
 
@@ -58,8 +62,9 @@ class GeminiClient:
         url = f"{self.host}/serving-endpoints/{GEMINI_ENDPOINT}/invocations"
         body = {
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 1024,
-            "temperature": 0.2,
+            "max_tokens": 2048,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
         }
         resp = requests.post(url, headers=self._headers(), json=body, timeout=180)
         if resp.status_code != 200:
@@ -76,7 +81,8 @@ class GeminiClient:
 
     @staticmethod
     def _parse_json(text: str) -> dict:
-        """Gemini 出力からJSONを安全に抽出."""
+        """Gemini 出力から JSON を安全に抽出。
+        Gemini が時々 {"summary": "<JSON文字列>"} の形でネストして返すケースをアンラップする。"""
         text = text.strip()
         if text.startswith("```"):
             text = text.strip("`")
@@ -84,10 +90,27 @@ class GeminiClient:
                 text = text[4:]
             text = text.strip()
         try:
-            return json.loads(text)
+            result = json.loads(text)
         except json.JSONDecodeError:
-            start = text.find("{")
-            end = text.rfind("}")
+            start = text.find("{"); end = text.rfind("}")
             if start >= 0 and end > start:
-                return json.loads(text[start:end + 1])
-            return {"transcript": "", "summary": text[:500], "features": []}
+                try:
+                    result = json.loads(text[start:end + 1])
+                except Exception:
+                    return {"transcript": "", "summary": text[:500], "features": []}
+            else:
+                return {"transcript": "", "summary": text[:500], "features": []}
+
+        # nested JSON unwrap: summary が "{...}" 形式なら 1 段だけ unwrap
+        if isinstance(result, dict):
+            s = result.get("summary", "")
+            if isinstance(s, str) and s.lstrip().startswith("{"):
+                try:
+                    inner = json.loads(s)
+                    if isinstance(inner, dict) and any(
+                        k in inner for k in ("summary", "transcript", "features")
+                    ):
+                        return inner
+                except Exception:
+                    pass
+        return result

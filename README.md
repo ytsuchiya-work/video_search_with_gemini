@@ -273,7 +273,34 @@ requests.exceptions.SSLError: ... EOF occurred in violation of protocol
 **解決**: Databricks SDK の `WorkspaceClient.files.upload(file_path, contents=..., overwrite=True)` に置換。
 SDK 側で multipart / chunked / retry を適切にハンドルしてくれる。ダウンロードも `w.files.download()` を使用。
 
-### 5.12 Databricks Apps のリソース権限
+### 5.12 App Service Principal の UC 権限不足
+
+**症状**: アップロード時に
+```
+PermissionDenied: User does not have USE CATALOG on Catalog 'classic_stable_ytcy_catalog'
+```
+
+**原因**: Databricks Apps の SP (`app-<id> <name>`) は default で UC アクセス権を持たない。`app.yaml` の `resources` ブロックは SQL warehouse / serving endpoint / vector search endpoint には対応するが、catalog / schema / volume のグラントは別途必要。
+
+**解決**: SP に直接 GRANT する。
+```sql
+GRANT USE CATALOG ON CATALOG classic_stable_ytcy_catalog TO `<sp_client_id>`;
+GRANT USE SCHEMA  ON SCHEMA  classic_stable_ytcy_catalog.mulitmodal_video_search_with_gemini TO `<sp_client_id>`;
+GRANT ALL PRIVILEGES ON SCHEMA classic_stable_ytcy_catalog.mulitmodal_video_search_with_gemini TO `<sp_client_id>`;
+GRANT ALL PRIVILEGES ON VOLUME classic_stable_ytcy_catalog.mulitmodal_video_search_with_gemini.media TO `<sp_client_id>`;
+GRANT SELECT, MODIFY ON TABLE …videos    TO `<sp_client_id>`;
+GRANT SELECT, MODIFY ON TABLE …scenes    TO `<sp_client_id>`;
+GRANT SELECT, MODIFY ON TABLE …scene_analysis TO `<sp_client_id>`;
+```
+SP の `client_id` は `databricks apps get <app_name>` の `service_principal_client_id` から取得。
+
+### 5.13 Gemini の nested JSON レスポンス
+
+**症状**: Gemini が偶発的に `{"summary": "{\"summary\": \"…\", \"features\": […]}"}` のように summary の中に JSON 文字列を入れ子で返すことがある。結果として `scene_analysis.summary` カラムに生の JSON 文字列が混入。
+
+**解決**: `gemini_client.py:_parse_json` で、`summary` が `{` で始まる文字列なら 1 段だけ `json.loads` してアンラップ。プロンプト側にも「入れ子禁止」を明記。
+
+### 5.14 Databricks Apps のリソース権限
 
 **症状**: deploy 時に SP が SQL warehouse / VS endpoint / serving endpoint へアクセスできずに 403。
 
