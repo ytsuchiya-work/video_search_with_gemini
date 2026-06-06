@@ -39,8 +39,12 @@ def get_video_duration(path: str) -> float:
         cap.release()
 
 
-def detect_scenes(video_path: str, threshold: float = 30.0, min_scene_len_sec: float = 4.0) -> List[tuple]:
-    """シーン境界を検出。min_scene_len_sec で短すぎる分割を抑制."""
+def detect_scenes(video_path: str, threshold: float = 22.0, min_scene_len_sec: float = 2.5) -> List[tuple]:
+    """シーン境界を検出。
+
+    - threshold が小さいほど敏感に分割される (デフォルト 22; 元値 30 から下げ)
+    - min_scene_len_sec で短すぎる分割を抑制 (デフォルト 2.5 秒)
+    """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     cap.release()

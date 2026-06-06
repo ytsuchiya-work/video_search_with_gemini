@@ -103,7 +103,7 @@ URL: `https://video-search-with-gemini-<workspace-id>.aws.databricksapps.com`
 | Auth | `databricks-sdk` (App 内では自動で SP token) |
 | SQL | `databricks-sql-connector` (Warehouse 経由で Delta テーブル操作) |
 | Vector Search | `databricks-vectorsearch` + REST API |
-| シーン検出 | **PySceneDetect** (ContentDetector, threshold=30, min_scene=4s) |
+| シーン検出 | **PySceneDetect** (ContentDetector, threshold=22, min_scene=2.5s) |
 | メディア処理 | **ffmpeg / ffprobe** (imageio-ffmpeg バンドル) |
 | LLM | **FMAPI Gemini 2.5 Flash** (`databricks-gemini-2-5-flash`) |
 | Embedding | **FMAPI GTE-large-en** (`databricks-gte-large-en`, 1024 dim) |
@@ -198,7 +198,9 @@ URL: `https://video-search-with-gemini-<workspace-id>.aws.databricksapps.com`
 
 **原因**: PySceneDetect のデフォルト `min_scene_len` がフレーム単位かつ短い。
 
-**解決**: `ContentDetector(threshold=30, min_scene_len=int(4.0 * 30))` で 4 秒以下のシーンを除外。シーン未検出の動画は「全体を 1 シーン」として fallback。
+**解決**: `ContentDetector(threshold=22, min_scene_len=int(2.5 * fps))` で 2.5 秒未満のシーンを除外。
+threshold は小さいほど敏感（多く分割する）。検証の結果 22 が「過剰分割しすぎず、しっかりカット境界を拾う」バランス点。
+シーン未検出の動画は「全体を 1 シーン」として fallback。
 
 ### 5.5 UC Volume へのストリーミングアップロード
 
