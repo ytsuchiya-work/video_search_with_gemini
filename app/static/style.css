@@ -81,6 +81,23 @@ button.ghost:hover{background:var(--card-2)}
 .log-row.err{color:var(--err)}
 .log-row.warn{color:var(--warn)}
 
+/* --- Sync card --- */
+.sync-card{background:var(--card-2); border:1px solid var(--border); border-radius:10px;
+  padding:12px 14px; margin:12px 0; transition:border-color .2s, background .2s}
+.sync-card.running{border-color:var(--accent); background:rgba(106,169,255,.08)}
+.sync-card.done{border-color:var(--ok); background:rgba(56,193,114,.08)}
+.sync-card.err{border-color:var(--err); background:rgba(239,68,68,.08)}
+.sync-row{display:flex; gap:12px; align-items:center}
+.sync-icon{font-size:24px; line-height:1}
+.sync-card.running .sync-icon{animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+.sync-title{font-weight:600; font-size:14px}
+.sync-detail{margin-top:2px}
+.sync-bar{height:4px; background:var(--border); border-radius:2px; margin-top:10px; overflow:hidden}
+.sync-bar-fill{height:100%; width:0%; background:var(--accent); transition:width .4s, background .3s}
+.sync-card.done .sync-bar-fill{background:var(--ok)}
+.sync-card.err .sync-bar-fill{background:var(--err)}
+
 /* --- Banner --- */
 .banner{padding:10px 14px; border-radius:8px; background:rgba(106,169,255,.07);
   border:1px solid rgba(106,169,255,.3); color:var(--accent); font-size:13px; margin-bottom:10px}

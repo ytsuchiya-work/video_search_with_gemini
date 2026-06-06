@@ -104,6 +104,9 @@ async function runAnalyze(videoId) {
   setStatus("#analyzeStatus", "spinner", `Gemini 解析中 (video_id=${videoId})…`);
   $("#analyzeLogs").classList.remove("hidden");
   $("#analyzeLogs").innerHTML = "";
+  setSyncState("hidden");
+
+  let analyzedBefore = await getIndexedRowCount();
 
   try {
     const r = await fetch(`/api/analyze/${videoId}`, { method: "POST" });
@@ -112,32 +115,105 @@ async function runAnalyze(videoId) {
 
     const job = await (await fetch(`/api/jobs/ana-${videoId}`)).json();
     (job.events || []).forEach(e => appendLog("#analyzeLogs", e.message, e.level));
-    appendLog("#analyzeLogs", `${data.analyzed} シーンを解析・同期しました`);
+    appendLog("#analyzeLogs", `${data.analyzed} シーンを解析しました。同期待機中…`);
 
-    setStatus("#analyzeStatus", "ok", `${data.analyzed} シーン解析完了`);
-    $("#analyzeBanner").textContent = "解析完了。検索バー(画面上部)からシーンを検索できます。";
+    setStatus("#analyzeStatus", "ok", `${data.analyzed} シーン解析完了。Sync 待機中…`);
+    $("#analyzeBanner").textContent = "Vector Search への同期中。完了すると検索可能になります。";
 
-    pollIndexStatus();
+    await pollIndexStatus(data.analyzed);
     refreshLibrary();
   } catch (e) {
     setStatus("#analyzeStatus", "err", "解析失敗");
+    setSyncState("err", { title: "同期エラー", detail: e.message });
     appendLog("#analyzeLogs", `ERROR: ${e.message}`, "err");
   } finally {
     $("#analyzeBtn").disabled = false;
   }
 }
 
-async function pollIndexStatus() {
-  const el = $("#indexStatus");
-  for (let i = 0; i < 30; i++) {
-    try {
-      const s = await (await fetch("/api/index/status")).json();
-      el.textContent = `index: ${s.detailed_state}  (rows: ${s.indexed_row_count ?? "?"})`;
-      if (s.detailed_state && s.detailed_state.startsWith("ONLINE_NO_PENDING_UPDATE")) break;
-    } catch (e) {}
-    await new Promise(r => setTimeout(r, 4000));
-  }
+async function getIndexedRowCount() {
+  try {
+    const s = await (await fetch("/api/index/status")).json();
+    return s.indexed_row_count ?? 0;
+  } catch (e) { return 0; }
 }
+
+function setSyncState(kind, info) {
+  const card = $("#syncCard");
+  const icon = $("#syncIcon");
+  const title = $("#syncTitle");
+  const detail = $("#syncDetail");
+  const bar = $("#syncBarFill");
+  card.classList.remove("hidden", "running", "done", "err");
+  if (kind === "hidden") { card.classList.add("hidden"); return; }
+  card.classList.add(kind);
+  if (info?.title) title.textContent = info.title;
+  if (info?.detail) detail.textContent = info.detail;
+  if (info?.icon) icon.textContent = info.icon;
+  if (info?.fill != null) bar.style.width = `${Math.min(100, info.fill)}%`;
+}
+
+async function pollIndexStatus(expectedDelta) {
+  setSyncState("running", {
+    title: "Vector Search 同期中",
+    detail: "Embedding をベクトルインデックスに反映しています…",
+    icon: "⏳", fill: 5,
+  });
+
+  const startRows = await getIndexedRowCount();
+  const target = startRows + (expectedDelta || 0);
+  let lastState = "";
+
+  for (let i = 0; i < 60; i++) {
+    let s;
+    try {
+      s = await (await fetch("/api/index/status")).json();
+    } catch (e) { await sleep(3000); continue; }
+
+    const state = s.detailed_state || "";
+    const rows = s.indexed_row_count ?? 0;
+    lastState = state;
+
+    // 進捗バーは「経過 or rows 進捗」のうち大きい方
+    const rowsProgress = target > startRows
+      ? Math.min(100, ((rows - startRows) / (target - startRows)) * 100)
+      : 0;
+    const timeProgress = Math.min(90, 5 + (i / 60) * 85);
+    const fill = Math.max(rowsProgress, timeProgress);
+
+    setSyncState("running", {
+      title: "Vector Search 同期中",
+      detail: `state=${state} | indexed_rows=${rows}${target ? "/" + target : ""}`,
+      icon: "⏳", fill,
+    });
+
+    if (state.startsWith("ONLINE_NO_PENDING_UPDATE")) {
+      setSyncState("done", {
+        title: "Vector Search 同期 完了 ✓",
+        detail: `indexed_rows=${rows} — 画面上部の検索バーから検索できます`,
+        icon: "✅", fill: 100,
+      });
+      $("#analyzeBanner").textContent = "同期完了。画面上部の検索バーからシーンを検索できます。";
+      setStatus("#analyzeStatus", "ok", `同期完了 (${rows} rows)`);
+      return;
+    }
+    if (state.includes("FAILED")) {
+      setSyncState("err", {
+        title: "同期失敗", detail: state, icon: "✖", fill: 100,
+      });
+      return;
+    }
+    await sleep(3000);
+  }
+  // タイムアウト
+  setSyncState("err", {
+    title: "同期がタイムアウト",
+    detail: `最後の state: ${lastState}`,
+    icon: "⏱", fill: 100,
+  });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Library ───────────────────────────────────────────────────────────────
 $("#refreshLibrary").addEventListener("click", refreshLibrary);

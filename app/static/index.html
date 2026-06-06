@@ -79,7 +79,17 @@
         <span id="analyzeStatus" class="status"></span>
       </div>
 
-      <div id="indexStatus" class="muted small"></div>
+      <!-- Vector Search Sync 状態を視覚的に表示 -->
+      <div id="syncCard" class="sync-card hidden">
+        <div class="sync-row">
+          <span id="syncIcon" class="sync-icon">⏳</span>
+          <div class="sync-text">
+            <div id="syncTitle" class="sync-title">Vector Search 同期</div>
+            <div id="syncDetail" class="sync-detail muted small">待機中…</div>
+          </div>
+        </div>
+        <div class="sync-bar"><div id="syncBarFill" class="sync-bar-fill"></div></div>
+      </div>
 
       <div id="analyzeLogs" class="logs hidden"></div>
     </div>
