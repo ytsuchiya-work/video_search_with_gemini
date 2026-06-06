@@ -1,0 +1,43 @@
+command:
+  - uvicorn
+  - main:app
+  - --host
+  - "0.0.0.0"
+  - --port
+  - "8000"
+
+env:
+  - name: CATALOG
+    value: "classic_stable_ytcy_catalog"
+  - name: SCHEMA
+    value: "mulitmodal_video_search_with_gemini"
+  - name: VOLUME
+    value: "media"
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "e351c2d1b16eae95"
+  - name: VS_ENDPOINT_NAME
+    value: "video-search-endpoint"
+  - name: VS_INDEX_NAME
+    value: "classic_stable_ytcy_catalog.mulitmodal_video_search_with_gemini.scene_analysis_index"
+  - name: GEMINI_ENDPOINT
+    value: "databricks-gemini-2-5-flash"
+  - name: EMBEDDING_ENDPOINT
+    value: "databricks-gte-large-en"
+
+resources:
+  - name: sql-warehouse
+    sql_warehouse:
+      id: "e351c2d1b16eae95"
+      permission: CAN_USE
+  - name: vector-search-endpoint
+    vector_search_endpoint:
+      name: "video-search-endpoint"
+      permission: CAN_MANAGE
+  - name: gemini-endpoint
+    serving_endpoint:
+      name: "databricks-gemini-2-5-flash"
+      permission: CAN_QUERY
+  - name: gte-endpoint
+    serving_endpoint:
+      name: "databricks-gte-large-en"
+      permission: CAN_QUERY

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Video Search with Gemini</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- どこからでも呼び出せる固定検索バー (= Section 3) -->
+<header class="search-bar" id="searchBar">
+  <div class="brand">
+    <span class="logo">▶</span>
+    <strong>Video Search with Gemini</strong>
+  </div>
+  <form id="searchForm" class="search-form">
+    <input type="text" id="searchInput"
+           placeholder="シーンを検索 (例: 'おじいさんが料理する場面')" autocomplete="off"/>
+    <button type="submit" id="searchBtn">検索</button>
+  </form>
+  <button id="toggleResults" class="ghost" type="button" style="display:none">結果を表示</button>
+</header>
+
+<!-- 検索結果のフロート表示 -->
+<aside id="searchResults" class="results-panel hidden">
+  <div class="results-header">
+    <h3>検索結果 <span id="resultsCount"></span></h3>
+    <button id="closeResults" class="ghost" type="button">×</button>
+  </div>
+  <div id="resultsBody"></div>
+</aside>
+
+<main>
+  <!-- Section 1: 動画アップロード & シーン分割 -->
+  <section class="card" id="section-upload">
+    <div class="card-header">
+      <span class="step">1</span>
+      <div>
+        <h2>動画アップロード & シーン分割</h2>
+        <p class="muted">動画ファイルをアップロードし、PySceneDetect でシーン分割 + 音声抽出を行います。</p>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept="video/*" />
+        <div class="dz-icon">⬆</div>
+        <div>クリック または ドラッグ&ドロップ で動画を選択</div>
+        <div class="muted" id="fileName">未選択</div>
+      </label>
+
+      <div class="row">
+        <button id="uploadBtn" disabled>アップロード & シーン分割</button>
+        <span id="uploadStatus" class="status"></span>
+      </div>
+
+      <div id="uploadLogs" class="logs hidden"></div>
+    </div>
+  </section>
+
+  <!-- Section 2: Gemini 解析 & 埋め込み同期 -->
+  <section class="card disabled" id="section-analyze">
+    <div class="card-header">
+      <span class="step">2</span>
+      <div>
+        <h2>Gemini 解析 & Embedding 同期</h2>
+        <p class="muted">各シーンを FMAPI Gemini に渡し、音声文字起こし・要約・特徴を生成 → Vector Search に同期します。</p>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <div class="banner" id="analyzeBanner">
+        Section 1 を完了すると、自動的に解析が開始されます。
+      </div>
+
+      <div class="row">
+        <button id="analyzeBtn" disabled>Gemini 解析 & 同期を開始</button>
+        <span id="analyzeStatus" class="status"></span>
+      </div>
+
+      <div id="indexStatus" class="muted small"></div>
+
+      <div id="analyzeLogs" class="logs hidden"></div>
+    </div>
+  </section>
+
+  <!-- 補助: アップロード済み動画一覧 -->
+  <section class="card" id="section-library">
+    <div class="card-header">
+      <span class="step" style="background:#888">📚</span>
+      <div>
+        <h2>動画ライブラリ</h2>
+        <p class="muted">アップロード済み動画と解析状況。</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <button id="refreshLibrary" class="ghost">更新</button>
+      <table id="libraryTable">
+        <thead>
+          <tr><th>video_id</th><th>filename</th><th>duration</th>
+              <th>scenes / analyzed</th><th>status</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="videoModal">
+  <button class="ghost close" id="closeModal">×</button>
+  <video id="modalVideo" controls></video>
+  <div id="modalCaption" class="muted"></div>
+</dialog>
+
+<footer>
+  <span class="muted" id="configLine">loading config...</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
