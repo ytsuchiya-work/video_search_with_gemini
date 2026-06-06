@@ -1,0 +1,2 @@
+# video_search_with_gemini
+FMAPIのGeminiを使用して、マルチモーダルなビデオシーン検索を行うアプリ
