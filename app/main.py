@@ -194,13 +194,7 @@ async def process_video(video_id: str):
 
 
 def db_download_from_volume(volume_path: str, local_path: str) -> None:
-    import requests
-    url = f"{db.host}/api/2.0/fs/files{volume_path}"
-    with requests.get(url, headers=db._auth(), stream=True, timeout=600) as r:
-        r.raise_for_status()
-        with open(local_path, "wb") as f:
-            for chunk in r.iter_content(1024 * 1024):
-                f.write(chunk)
+    db.download_from_volume(volume_path, local_path)
 
 
 # ── 3) Gemini analyze ───────────────────────────────────────────────────────
@@ -364,12 +358,13 @@ async def stream_scene(scene_id: str):
 
 
 def _stream_volume(volume_path: str):
-    import requests
-    url = f"{db.host}/api/2.0/fs/files{volume_path}"
-    with requests.get(url, headers=db._auth(), stream=True, timeout=600) as r:
-        r.raise_for_status()
-        for chunk in r.iter_content(64 * 1024):
-            yield chunk
+    resp = db.w.files.download(file_path=volume_path)
+    stream = resp.contents
+    while True:
+        chunk = stream.read(64 * 1024)
+        if not chunk:
+            break
+        yield chunk
 
 
 @app.get("/api/config")

@@ -259,7 +259,21 @@ FileNotFoundError: [Errno 2] No such file or directory: 'ffprobe'
 - 動画切り出し・音声抽出は `imageio_ffmpeg.get_ffmpeg_exe()` でバンドル ffmpeg のパスを取得し `subprocess.run([FFMPEG, ...])` で起動。
 - 音声トラックが無い動画用に `anullsrc` フォールバックも追加。
 
-### 5.11 Databricks Apps のリソース権限
+### 5.11 UC Volume への大容量 PUT で SSL EOF
+
+**症状**: 32MB 程度の動画を `requests.put("/api/2.0/fs/files/...", data=f)` でアップロードすると
+```
+requests.exceptions.SSLError: ... EOF occurred in violation of protocol
+```
+で接続が切れる。
+
+**原因**: 生の REST `PUT` で大きなボディを送ると、proxy / load balancer 側で接続が切られる場合がある。
+特に Databricks Apps の OBO トークン経由のリクエストでは Content-Length / chunked 等の扱いが不安定。
+
+**解決**: Databricks SDK の `WorkspaceClient.files.upload(file_path, contents=..., overwrite=True)` に置換。
+SDK 側で multipart / chunked / retry を適切にハンドルしてくれる。ダウンロードも `w.files.download()` を使用。
+
+### 5.12 Databricks Apps のリソース権限
 
 **症状**: deploy 時に SP が SQL warehouse / VS endpoint / serving endpoint へアクセスできずに 403。
 

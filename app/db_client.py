@@ -57,13 +57,21 @@ class DBClient:
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in rows]
 
-    # ── Volume file IO via /api/2.0/fs/files ──
+    # ── Volume file IO via SDK files API ──
     def upload_to_volume(self, local_path: str, volume_path: str) -> None:
-        """ローカルファイルを UC Volume にアップロード."""
-        url = f"{self.host}/api/2.0/fs/files{volume_path}?overwrite=true"
+        """ローカルファイルを UC Volume にアップロード (SDK 経由)."""
         with open(local_path, "rb") as f:
-            r = requests.put(url, headers=self._auth(), data=f, timeout=600)
-        r.raise_for_status()
+            self.w.files.upload(file_path=volume_path, contents=f, overwrite=True)
+
+    def download_from_volume(self, volume_path: str, local_path: str) -> None:
+        resp = self.w.files.download(file_path=volume_path)
+        with open(local_path, "wb") as out:
+            stream = resp.contents
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
 
     def _auth(self) -> dict:
         return self.w.config.authenticate()
