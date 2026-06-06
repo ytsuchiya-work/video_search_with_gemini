@@ -60,9 +60,20 @@ uvicorn main:app --reload --port 8000
 ### 2.4 Databricks Apps へデプロイ
 
 ```bash
-databricks bundle deploy --profile fevm-classic-stable-ytcy
-databricks apps deploy video_search_with_gemini --profile fevm-classic-stable-ytcy
+# 1) Bundle (workspace files + app resource) を deploy
+DATABRICKS_CLI_PATH=/opt/homebrew/bin/databricks PATH=/opt/homebrew/bin:$PATH \
+  databricks bundle deploy --profile fevm-classic-stable-ytcy
+
+# 2) App compute を起動
+databricks apps start video-search-with-gemini --profile fevm-classic-stable-ytcy
+
+# 3) コードを app へ deploy
+databricks apps deploy video-search-with-gemini \
+  --source-code-path /Workspace/Users/<you>@databricks.com/.bundle/video_search_with_gemini/dev/files/app \
+  --profile fevm-classic-stable-ytcy
 ```
+
+URL: `https://video-search-with-gemini-<workspace-id>.aws.databricksapps.com`
 
 ### 2.5 操作手順
 
@@ -201,7 +212,39 @@ databricks apps deploy video_search_with_gemini --profile fevm-classic-stable-yt
 
 **解決**: `/api/process/{video_id}` の冒頭で対象 `video_id` の既存行を `DELETE` してから入れ直す。VS sync は次回 trigger で reconcile される。
 
-### 5.7 Databricks Apps のリソース権限
+### 5.7 Databricks Apps コンテナで `libGL.so.1` 不足
+
+**症状**: deploy 時に
+```
+ImportError: libGL.so.1: cannot open shared object file: No such file or directory
+```
+で起動失敗。
+
+**原因**: PySceneDetect が引っ張る `opencv-python` (GUI 版) が `libGL` を要求するが、Databricks Apps の slim runtime には入っていない。
+
+**解決**: `requirements.txt` で `scenedetect[opencv-headless]` の extras に頼らず、明示的に `opencv-python-headless>=4.10.0` を pin。これで libGL 依存が消え正常起動。
+
+### 5.8 App 名にアンダースコア不可
+
+**症状**: `bundle deploy` で
+```
+App name must contain only lowercase letters, numbers, and dashes.
+```
+
+**解決**: GitHub リポジトリ名は `video_search_with_gemini` のままで、Databricks Apps の名前のみ `video-search-with-gemini` (ハイフン) に変更。`databricks.yml` で `name:` をハイフン形式に揃える。
+
+### 5.9 Databricks CLI v0.18 と v1.1 の併存
+
+**症状**: `bundle deploy` 中に
+```
+legacy databricks CLI detected; upgrade to >= 0.100.0
+```
+
+**原因**: ローカル PATH 上、`venv/bin/databricks` (v0.18) が `/opt/homebrew/bin/databricks` (v1.1) より先に解決される。bundle deploy はサブプロセスで CLI を呼ぶため、古い CLI を呼んで失敗。
+
+**解決**: `DATABRICKS_CLI_PATH=/opt/homebrew/bin/databricks PATH=/opt/homebrew/bin:$PATH databricks bundle deploy …` で明示。
+
+### 5.10 Databricks Apps のリソース権限
 
 **症状**: deploy 時に SP が SQL warehouse / VS endpoint / serving endpoint へアクセスできずに 403。
 

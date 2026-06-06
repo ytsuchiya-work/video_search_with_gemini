@@ -14,7 +14,7 @@ variables:
 resources:
   apps:
     video_search_with_gemini:
-      name: video_search_with_gemini
+      name: video-search-with-gemini
       description: "FMAPI Gemini + Vector Search による動画シーン意味検索アプリ"
       source_code_path: ./app
 

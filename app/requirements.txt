@@ -6,5 +6,6 @@ databricks-sql-connector>=3.5.0
 databricks-vectorsearch>=0.40
 requests>=2.31.0
 pydantic>=2.8.0
-scenedetect[opencv-headless]>=0.6.4
+scenedetect>=0.6.4
+opencv-python-headless>=4.10.0
 imageio-ffmpeg>=0.5.1
