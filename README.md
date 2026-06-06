@@ -244,7 +244,22 @@ legacy databricks CLI detected; upgrade to >= 0.100.0
 
 **解決**: `DATABRICKS_CLI_PATH=/opt/homebrew/bin/databricks PATH=/opt/homebrew/bin:$PATH databricks bundle deploy …` で明示。
 
-### 5.10 Databricks Apps のリソース権限
+### 5.10 Databricks Apps コンテナで `ffprobe` / `ffmpeg` が無い
+
+**症状**: `/api/upload` 実行時に
+```
+FileNotFoundError: [Errno 2] No such file or directory: 'ffprobe'
+```
+500 エラーで停止。
+
+**原因**: Apps の slim Python runtime は ffmpeg/ffprobe を含んでいない。
+
+**解決**:
+- duration 取得・フレーム抽出は **OpenCV (`cv2.VideoCapture`)** で代替 (ffprobe 不要)。
+- 動画切り出し・音声抽出は `imageio_ffmpeg.get_ffmpeg_exe()` でバンドル ffmpeg のパスを取得し `subprocess.run([FFMPEG, ...])` で起動。
+- 音声トラックが無い動画用に `anullsrc` フォールバックも追加。
+
+### 5.11 Databricks Apps のリソース権限
 
 **症状**: deploy 時に SP が SQL warehouse / VS endpoint / serving endpoint へアクセスできずに 403。
 
