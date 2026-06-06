@@ -58,9 +58,15 @@ def detect_scenes(
     min_frames = max(1, int(min_scene_len_sec * fps))
     detector = ContentDetector(threshold=threshold, min_scene_len=min_frames)
     raw = detect(video_path, detector)
-    if not raw:
-        return []
-    boundaries = [(s[0].get_seconds(), s[1].get_seconds()) for s in raw]
+    if raw:
+        boundaries = [(s[0].get_seconds(), s[1].get_seconds()) for s in raw]
+    else:
+        # ContentDetector が境界を検出できない動画 (アニメ/screencast/単色など)
+        # の場合は動画全体を 1 シーンとして渡し、後段で max_scene_len_sec 等分割する
+        duration = get_video_duration(video_path)
+        if duration <= 0:
+            return []
+        boundaries = [(0.0, duration)]
 
     # 長すぎるシーンを max_scene_len_sec を上限に等分割
     result: List[tuple] = []

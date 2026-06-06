@@ -149,10 +149,9 @@ async def process_video(video_id: str):
                 max_scene_len_sec=25.0,
             )
             if not scenes:
-                duration = get_video_duration(local_src)
-                scenes = [(0.0, duration)]
-                _log_event(job_id, "no scenes detected, falling back to single scene")
-            _log_event(job_id, f"detected {len(scenes)} scenes")
+                _log_event(job_id, "duration unknown, cannot split", level="error")
+                raise RuntimeError("could not determine video duration")
+            _log_event(job_id, f"detected {len(scenes)} scenes (incl. max-len sub-split)")
 
             scene_local_dir = os.path.join(td, "scenes")
             audio_local_dir = os.path.join(td, "audio")
