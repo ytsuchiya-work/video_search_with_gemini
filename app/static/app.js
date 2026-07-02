@@ -117,8 +117,11 @@ async function runAnalyze(videoId) {
     (job.events || []).forEach(e => appendLog("#analyzeLogs", e.message, e.level));
     appendLog("#analyzeLogs", `${data.analyzed} シーンを解析しました。同期待機中…`);
 
+    const recreated = data.sync?.action === "recreated";
     setStatus("#analyzeStatus", "ok", `${data.analyzed} シーン解析完了。Sync 待機中…`);
-    $("#analyzeBanner").textContent = "Vector Search への同期中。完了すると検索可能になります。";
+    $("#analyzeBanner").textContent = recreated
+      ? "インデックスを再作成し全件を再同期中。完了すると検索可能になります。"
+      : "Vector Search への同期中。完了すると検索可能になります。";
 
     await pollIndexStatus(data.analyzed);
     refreshLibrary();
@@ -163,12 +166,13 @@ async function pollIndexStatus(expectedDelta) {
   const startRows = await getIndexedRowCount();
   const target = startRows + (expectedDelta || 0);
   let lastState = "";
+  const maxPolls = 120;  // 5s x 120 = 10 分 (初回同期や embedding endpoint のスケールアップに備える)
 
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < maxPolls; i++) {
     let s;
     try {
       s = await (await fetch("/api/index/status")).json();
-    } catch (e) { await sleep(3000); continue; }
+    } catch (e) { await sleep(5000); continue; }
 
     const state = s.detailed_state || "";
     const rows = s.indexed_row_count ?? 0;
@@ -178,7 +182,7 @@ async function pollIndexStatus(expectedDelta) {
     const rowsProgress = target > startRows
       ? Math.min(100, ((rows - startRows) / (target - startRows)) * 100)
       : 0;
-    const timeProgress = Math.min(90, 5 + (i / 60) * 85);
+    const timeProgress = Math.min(90, 5 + (i / maxPolls) * 85);
     const fill = Math.max(rowsProgress, timeProgress);
 
     setSyncState("running", {
@@ -199,11 +203,13 @@ async function pollIndexStatus(expectedDelta) {
     }
     if (state.includes("FAILED")) {
       setSyncState("err", {
-        title: "同期失敗", detail: state, icon: "✖", fill: 100,
+        title: "同期失敗",
+        detail: `${state}${s.message ? " — " + s.message : ""}`,
+        icon: "✖", fill: 100,
       });
       return;
     }
-    await sleep(3000);
+    await sleep(5000);
   }
   // タイムアウト
   setSyncState("err", {

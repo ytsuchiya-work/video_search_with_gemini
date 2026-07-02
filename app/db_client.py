@@ -20,6 +20,7 @@ VS_ENDPOINT = os.environ.get("VS_ENDPOINT_NAME", "video-search-endpoint")
 VS_INDEX = os.environ.get(
     "VS_INDEX_NAME", f"{CATALOG}.{SCHEMA}.scene_analysis_index"
 )
+VS_EMBEDDING_MODEL = os.environ.get("EMBEDDING_ENDPOINT", "databricks-gte-large-en")
 
 T_VIDEOS = f"{CATALOG}.{SCHEMA}.videos"
 T_SCENES = f"{CATALOG}.{SCHEMA}.scenes"
@@ -87,6 +88,63 @@ class DBClient:
         url = f"{self.host}/api/2.0/vector-search/indexes/{VS_INDEX}"
         r = requests.get(url, headers=self._auth(), timeout=30)
         return r.json()
+
+    def recreate_index(self) -> dict:
+        """インデックスを削除して同一スペックで再作成する.
+
+        Delta sync インデックスは長期間同期しないとソーステーブルの変更履歴が
+        delta.deletedFileRetentionDuration を超えて消え、ONLINE_PIPELINE_FAILED
+        から復旧できなくなる。その場合の公式な修復手段が再作成
+        (初回同期でソーステーブル全件を取り込み直す)。
+        """
+        del_url = f"{self.host}/api/2.0/vector-search/indexes/{VS_INDEX}"
+        r = requests.delete(del_url, headers=self._auth(), timeout=30)
+        logger.info("index delete: status=%s body=%s", r.status_code, r.text[:200])
+
+        body = {
+            "name": VS_INDEX,
+            "endpoint_name": VS_ENDPOINT,
+            "primary_key": "scene_id",
+            "index_type": "DELTA_SYNC",
+            "delta_sync_index_spec": {
+                "source_table": T_ANALYSIS,
+                "pipeline_type": "TRIGGERED",
+                "embedding_source_columns": [
+                    {
+                        "name": "embedding_text",
+                        "embedding_model_endpoint_name": VS_EMBEDDING_MODEL,
+                    }
+                ],
+            },
+        }
+        h = self._auth(); h["Content-Type"] = "application/json"
+        create_url = f"{self.host}/api/2.0/vector-search/indexes"
+        last = None
+        # 削除が非同期に完了するため、名前衝突が解けるまでリトライ
+        for _ in range(6):
+            last = requests.post(create_url, headers=h, json=body, timeout=30)
+            if last.ok:
+                logger.info("index recreated: %s", VS_INDEX)
+                return {"action": "recreated", "status": last.status_code}
+            time.sleep(5)
+        raise RuntimeError(
+            f"index recreate failed: {last.status_code} {last.text[:300]}"
+        )
+
+    def sync_index(self) -> dict:
+        """同期をトリガーする。インデックスが失敗状態/不存在なら再作成にフォールバック."""
+        try:
+            info = self.index_status()
+        except Exception:
+            info = {}
+        status = info.get("status")
+        state = (status or {}).get("detailed_state", "")
+        if status is None or "FAILED" in state:
+            logger.warning("index state=%r -> recreating", state or info.get("error_code"))
+            return self.recreate_index()
+        sync = self.trigger_sync()
+        sync["action"] = "sync_triggered" if sync["status"] == 200 else "sync_failed"
+        return sync
 
     def search(self, query_text: str, num_results: int = 10) -> list[dict]:
         url = f"{self.host}/api/2.0/vector-search/indexes/{VS_INDEX}/query"

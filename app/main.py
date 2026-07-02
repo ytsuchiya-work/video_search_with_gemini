@@ -275,12 +275,19 @@ async def analyze_video(video_id: str):
             _log_event(job_id, f"  scene {sc['scene_index']}: {summary[:80]}")
 
         _log_event(job_id, "triggering Vector Search sync...")
-        sync = db.trigger_sync()
-        _log_event(job_id, f"sync triggered: {sync}")
+        sync = db.sync_index()
+        if sync.get("action") == "recreated":
+            _log_event(
+                job_id,
+                "インデックスが失敗状態だったため再作成しました。"
+                "初回同期でソーステーブル全件を取り込みます (数分かかります)",
+            )
+        _log_event(job_id, f"sync result: {sync}")
 
         JOBS[job_id]["status"] = "completed"
         JOBS[job_id]["analyzed"] = analyzed
-        return {"job_id": job_id, "analyzed": analyzed, "status": "completed"}
+        return {"job_id": job_id, "analyzed": analyzed, "status": "completed",
+                "sync": sync}
 
     except Exception as e:
         JOBS[job_id]["status"] = "failed"
@@ -332,7 +339,7 @@ async def get_job(job_id: str):
 
 @app.post("/api/sync")
 async def manual_sync():
-    return db.trigger_sync()
+    return db.sync_index()
 
 
 @app.get("/api/index/status")
