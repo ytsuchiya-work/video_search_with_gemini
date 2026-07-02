@@ -59,6 +59,24 @@ uvicorn main:app --reload --port 8000
 
 ### 2.4 Databricks Apps へデプロイ
 
+**現在の標準フロー: Git フォルダ経由**。ワークスペースの Git フォルダ
+(`/Users/<you>@databricks.com/video_search_with_gemini`、本リポジトリと紐づけ済み) を
+ソースにしてデプロイする。
+
+```bash
+# 1) GitHub に push した後、ワークスペースの Git フォルダを pull
+databricks api patch "/api/2.0/repos/<repo_id>" \
+  --json '{"branch": "main"}' --profile fevm-classic-stable-ytcy
+
+# 2) Git フォルダの app/ をソースにデプロイ
+databricks apps deploy video-search-with-gemini \
+  --source-code-path "/Workspace/Users/<you>@databricks.com/video_search_with_gemini/app" \
+  --profile fevm-classic-stable-ytcy
+```
+
+<details>
+<summary>(旧) Asset Bundle 経由のデプロイ</summary>
+
 ```bash
 # 1) Bundle (workspace files + app resource) を deploy
 DATABRICKS_CLI_PATH=/opt/homebrew/bin/databricks PATH=/opt/homebrew/bin:$PATH \
@@ -72,6 +90,8 @@ databricks apps deploy video-search-with-gemini \
   --source-code-path /Workspace/Users/<you>@databricks.com/.bundle/video_search_with_gemini/dev/files/app \
   --profile fevm-classic-stable-ytcy
 ```
+
+</details>
 
 URL: `https://video-search-with-gemini-<workspace-id>.aws.databricksapps.com`
 
@@ -90,6 +110,19 @@ URL: `https://video-search-with-gemini-<workspace-id>.aws.databricksapps.com`
    - Vector Search index を TRIGGERED で sync
 4. 画面上部の検索バーで自然文クエリ → ヒットしたシーンが確度順に表示
 5. 結果カードをクリックすると、そのシーンの動画クリップが再生される
+
+### 2.6 Vector Search index の自己修復（自動再作成）
+
+Delta sync index は**長期間 sync しないと復旧不能になる**（詳細は 5.15）。そのため
+アプリは同期トリガー時 (`db_client.py: sync_index()`) に index の状態を確認し、
+
+- `detailed_state` に `FAILED` を含む（例: `ONLINE_PIPELINE_FAILED`）
+- または index が存在しない
+
+場合は **index を削除 → 同一スペックで自動再作成** する。初回同期で
+`scene_analysis` テーブル全件が再取り込みされるため、データ損失はない
+（所要 数分、UI には「インデックスを再作成し全件を再同期中」と表示される）。
+手動でも `POST /api/sync` で同じロジックを実行できる。
 
 ---
 
@@ -302,11 +335,59 @@ SP の `client_id` は `databricks apps get <app_name>` の `service_principal_c
 
 **解決**: `gemini_client.py:_parse_json` で、`summary` が `{` で始まる文字列なら 1 段だけ `json.loads` してアンラップ。プロンプト側にも「入れ子禁止」を明記。
 
-### 5.14 Databricks Apps のリソース権限
+### 5.14 Databricks Apps のリソース権限 — `app.yaml` の `resources:` は適用されない
 
-**症状**: deploy 時に SP が SQL warehouse / VS endpoint / serving endpoint へアクセスできずに 403。
+**症状**: SP が SQL warehouse / VS endpoint / serving endpoint へアクセスできず 403。
+`app.yaml` に `resources:` ブロックを書いても解消しない。
 
-**解決**: `app.yaml` の `resources` ブロックに `sql_warehouse` / `vector_search_endpoint` / `serving_endpoint` を全て列挙し、必要権限 (CAN_USE / CAN_MANAGE / CAN_QUERY) を付与。
+**原因**: `app.yaml` はコンテナの `command` / `env` の定義のみで、**`resources:` セクションは
+Databricks Apps に読み込まれない**（アプリオブジェクト側へのリソース登録が必要）。
+実際、`databricks apps get` で確認すると `resources: null` のままだった。
+
+**解決**: 権限は permissions API / UC GRANT で SP に**直接**付与する。
+
+```bash
+# 例: VS endpoint に CAN_MANAGE を付与
+databricks api patch "/api/2.0/permissions/vector-search-endpoints/<endpoint_id>" \
+  --json '{"access_control_list": [
+    {"service_principal_name": "<sp_client_id>", "permission_level": "CAN_MANAGE"}]}'
+```
+
+`app.yaml` の `resources:` はドキュメントとして残しているが、宣言だけでは効かない点に注意。
+
+### 5.15 長期間 sync していない Delta sync index が復旧不能 (`ONLINE_PIPELINE_FAILED`)
+
+**症状**: 久しぶりに動画を解析すると Vector Search 同期が完了せず、UI 上は「同期がタイムアウト」。
+index の実状態は `ONLINE_PIPELINE_FAILED` で、pipeline イベントログに
+
+```
+[DELTA_UNSUPPORTED_TIME_TRAVEL_BEYOND_DELETED_FILE_RETENTION_DURATION]
+Cannot time travel beyond delta.deletedFileRetentionDuration (168 HOURS)
+```
+
+**原因**: Delta sync index は前回同期時点からの差分をソーステーブルの変更履歴 (time travel) で
+読むが、履歴は `delta.deletedFileRetentionDuration`（デフォルト 7 日）を超えると VACUUM で消える。
+最終同期から 7 日以上空くと差分同期が不可能になり、index は再作成するしかなくなる。
+なお sync trigger API 自体は 200 を返すため、失敗は index の `detailed_state` /
+pipeline イベントを見ないと気づけない。
+
+**解決**（本リポジトリで実装済み）:
+
+1. **再開時の自動再作成を前提にする**: `db_client.py: sync_index()` が同期トリガー前に
+   index の状態を確認し、`FAILED` 状態・不存在なら削除→同一スペックで再作成する（2.6 参照）。
+2. **再発の緩和**: ソーステーブルの保持期間を延長。
+   ```sql
+   ALTER TABLE …scene_analysis
+   SET TBLPROPERTIES ('delta.deletedFileRetentionDuration' = 'interval 30 days');
+   ```
+3. **SP 権限**: 自動再作成には SP に VS endpoint への `CAN_MANAGE`（5.14 の方法で付与）と
+   スキーマへの `MANAGE` が必要。**UC の `ALL PRIVILEGES` に `MANAGE` は含まれない**ため
+   別途 GRANT する（他者所有 index の削除に必要。一度 SP が再作成すれば以後は SP 所有になる）。
+   ```sql
+   GRANT MANAGE ON SCHEMA …mulitmodal_video_search_with_gemini TO `<sp_client_id>`;
+   ```
+4. **UI**: 同期ポーリングを 3 分→10 分に延長し、タイムアウト/失敗時は index の
+   `detailed_state` とメッセージを表示するよう改善。
 
 ---
 
